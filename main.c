@@ -1,0 +1,125 @@
+#include "life.h"
+#include "board.h"
+#include "sim.h"
+#include "assert.h"
+#include <stdbool.h>
+#include <strings.h>
+
+typedef struct {
+	char* filename;
+	bool ascii;
+} Args;
+
+void help_and_exit(const char* name) {
+	printf("Usage: %s <file> [ascii]\n", name);
+	printf("Interactive commands:\n");
+	printf("\td filename: dump the current state to filename\n");
+	printf("\tn N: run the simulation N steps without displaying intermediate results\n");
+	printf("\ts N: run the simulation N steps displaying intermediate results\n");
+	printf("\tq: quit\n");
+	exit(EXIT_FAILURE);
+}
+
+void parse_opts(int argc, char** argv, Args* args) {
+	if (argc != 2 && argc != 3) {
+		help_and_exit(argv[0]);
+	}
+	args->filename = argv[1];
+	args->ascii = false;
+	if (argc == 3) {
+		if (strcmp(argv[2], "ascii") == 0) {
+			args -> ascii = true;
+		} else {
+			help_and_exit(argv[0]);
+		}
+	}
+}
+
+int main(int argc, char** argv) {
+	Board* boards;
+	Args args;
+
+	parse_opts(argc, argv, &args);
+
+	if ((boards = create_board(args.filename)) == NULL) {
+		fprintf(stderr, "Failed to process file %s\n", args.filename);
+		exit(EXIT_FAILURE);
+	}
+
+	printf("simulating life board %zu rows %zu cols\n", boards->num_rows, boards->num_cols);
+	fflush(stdout);
+
+	bool done = false;
+	int step_size = 1; 
+	int quanta = 1;  
+	const int ibuf_size = 128;
+
+	while (!done) {
+		char ibuf[ibuf_size];
+
+		clear_screen();
+		print_board(
+			boards->current_buffer,
+			boards->num_rows,
+			boards->num_cols,
+			boards->gen,
+			args.ascii
+		);
+
+		printf("cmd(d filename, s [#], n [#], q) : ");
+		fflush(stdout);
+
+		fgets(ibuf, ibuf_size, stdin);
+		fflush(stdout);
+		
+		if (ibuf[0] == 'q') {
+			done = true;
+			break;
+		} else if (ibuf[0] == 's') {
+			sscanf(ibuf, "%*s %d", &quanta);
+			step_size = 1;
+		} else if (ibuf[0] == 'n') {
+			sscanf(ibuf, "%*s %d", &quanta);
+			step_size = quanta;
+		} else if (ibuf[0] == 'd') {
+			char dump[ibuf_size];
+			sscanf(ibuf, "%*s %s", dump);
+			dump_board(boards->current_buffer, boards->num_rows, boards->num_cols, dump);
+			continue;
+		}
+
+		clear_screen();
+		for (int i = 0; i < quanta; i += step_size) {
+			start_meas();
+			sim_loop(boards, step_size);
+			stop_meas();
+			printf(
+				"speed gen/s = %08.2f  gen = %10d\n",
+				(double) step_size / get_secs(),
+				boards->gen
+			);
+			fflush(stdout);
+			print_board(
+				boards->current_buffer,
+				boards->num_rows,
+				boards->num_cols,
+				boards->gen,
+				args.ascii
+			);
+		}
+		clear_screen();
+		print_board(
+			boards->current_buffer,
+			boards->num_rows,
+			boards->num_cols,
+			boards->gen,
+			args.ascii
+		);
+		fflush(stdout);
+	}
+
+	delete_board(&boards);
+	assert(boards == NULL);
+
+	return EXIT_SUCCESS;
+} 
